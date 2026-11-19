@@ -1,3 +1,4 @@
+import re
 import subprocess
 import threading
 
@@ -22,6 +23,27 @@ class Led(threading.Thread):
         self._stop = threading.Event()
         self._state_lock = threading.Lock()
         self._gpioset_proc = None
+        self._gpioset_major = None
+
+    def _gpioset_command(self):
+        """libgpiod v1 (libgpiod-utils, bookworm) and v2 (gpiod, trixie+)
+        have different gpioset CLIs, but both hold the line while the
+        process runs and release it on exit. Detect the version once."""
+        if self._gpioset_major is None:
+            self._gpioset_major = 1
+            try:
+                out = subprocess.run(["gpioset", "--version"],
+                                     capture_output=True, text=True, timeout=5)
+                first = (out.stdout.strip() or out.stderr.strip()).splitlines()
+                m = re.search(r"gpioset\D*(\d+)", first[0]) if first else None
+                if m:
+                    self._gpioset_major = int(m.group(1))
+            except (OSError, subprocess.SubprocessError):
+                pass
+        line = "%d=1" % self.cfg.led_gpio_line
+        if self._gpioset_major >= 2:
+            return ["gpioset", "--chip", self.cfg.led_gpio_chip, line]
+        return ["gpioset", "--mode=signal", self.cfg.led_gpio_chip, line]
 
     def run(self):
         while not self._stop.is_set():
@@ -60,10 +82,10 @@ class Led(threading.Thread):
             return
         try:
             self._gpioset_proc = subprocess.Popen(
-                ["gpioset", "--mode=signal", self.cfg.led_gpio_chip, "%d=1" % self.cfg.led_gpio_line],
+                self._gpioset_command(),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
         except OSError:
-            print("[led] failed to run gpioset; is libgpiod-utils installed?")
+            print("[led] failed to run gpioset; is libgpiod-utils/gpiod installed?")
             self.enabled = False

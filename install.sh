@@ -34,8 +34,17 @@ apt-get install -y \
   ifuse \
   exfatprogs \
   util-linux \
-  libgpiod-utils \
   gdisk
+
+# GPIO tools: Debian trixie+ ships libgpiod v2 as 'gpiod'; older releases
+# (bookworm) package the v1 tools as 'libgpiod-utils'. Either works - the
+# daemon detects the gpioset CLI version at runtime.
+if ! apt-get install -y gpiod; then
+  apt-get install -y libgpiod-utils \
+    || echo "WARNING: no gpiod/libgpiod-utils package found; LED disabled (log only)" >&2
+fi
+command -v gpioset >/dev/null 2>&1 \
+  || echo "WARNING: gpioset not found; LED will log to journal instead" >&2
 
 echo "Installing files to ${INSTALL_DIR} ..."
 mkdir -p "${INSTALL_DIR}"

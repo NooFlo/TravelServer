@@ -121,7 +121,9 @@ journalctl -u travelserver -f    # watch it work
 
 The installer copies the code to `/opt/travelserver`, the config to
 `/etc/travelserver/travelserver.conf`, and installs `python3`,
-`libimobiledevice-utils`, `usbmuxd`, `ifuse`, `exfatprogs`, and `libgpiod-utils`.
+`libimobiledevice-utils`, `usbmuxd`, `ifuse`, `exfatprogs`, and the
+`gpioset` GPIO tools (package `gpiod` on Debian trixie+,
+`libgpiod-utils` on bookworm).
 Use `sudo ./install.sh --with-docker` to additionally install Docker + Compose
 for the [optional webapps](webapps/README.md).
 
