@@ -33,6 +33,13 @@ class Config:
         i = parser["iphone"]
         self.iphone_mountpoint = i.get("mountpoint", "/mnt/travelserver/iphone")
 
+        if not parser.has_section("webui"):
+            parser.add_section("webui")
+        w = parser["webui"]
+        self.webui_enabled = w.getboolean("enabled", True)
+        self.webui_port = w.getint("port", 8000)
+        self.webui_bind = w.get("bind", "0.0.0.0")
+
         b = parser["behavior"]
         self.poll_interval = b.getint("poll_interval", 2)
         self.max_sd_card_bytes = b.getint("max_sd_card_bytes", 1099511627776)

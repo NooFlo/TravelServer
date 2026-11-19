@@ -24,7 +24,7 @@ PAGE = """<!doctype html>
   th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid #26292f; }
   th { color: #9aa4b2; font-weight: 500; width: 45%; }
   .bar { background: #26292f; border-radius: 6px; height: 10px; margin: 0.8rem 0 1.4rem; overflow: hidden; }
-  .bar > div { height: 100%; background: #5ac8fa; width: 0%%; transition: width .4s; }
+  .bar > div { height: 100%; background: #5ac8fa; width: 0%; transition: width .4s; }
   .bar.done > div { background: #30d158; } .bar.error > div { background: #ff453a; }
   .drive { padding: 0.55rem 0.7rem; border: 1px solid #26292f; border-radius: 8px; margin: 0.4rem 0; }
   .drive.present { border-color: #30d158; } .drive.missing { border-color: #ff453a; color: #ff453a; }
@@ -46,6 +46,7 @@ PAGE = """<!doctype html>
   <tr><th>Already backed up (skipped)</th><td id="skipped"></td></tr>
   <tr><th>Failed / unverified</th><td id="failed"></td></tr>
   <tr><th>Elapsed</th><td id="elapsed"></td></tr>
+  <tr><th>LED</th><td id="led"></td></tr>
 </table>
 <h2>Storage</h2>
 <div id="disks"></div>
@@ -71,12 +72,19 @@ async function poll() {
     document.getElementById('skipped').textContent = j.files_skipped;
     document.getElementById('failed').textContent = j.files_failed + " / " + j.files_unverified;
     document.getElementById('elapsed').textContent = fmts(j.elapsed_seconds);
+    document.getElementById('led').textContent = j.led_pattern || "-";
     const disks = document.getElementById('disks');
     disks.innerHTML = '';
     for (const d of j.disks) {
       const div = document.createElement('div');
       div.className = 'drive ' + (d.present ? 'present' : 'missing');
-      div.textContent = d.present ? d.label + " - " + d.mountpoint + " (" + d.size + " total, " + d.free + " free)" : d.label + " - not found";
+      if (!d.present) {
+        div.textContent = d.label + ' - not found';
+      } else {
+        let text = d.label + ' - ' + (d.mountpoint || 'present, not mounted');
+        if (d.size) { text += ' (' + d.size + ' total' + (d.free ? ', ' + d.free + ' free' : '') + ')'; }
+        div.textContent = text;
+      }
       disks.appendChild(div);
     }
     if (!j.disks.length) disks.innerHTML = '<div class="drive">No storage disks detected yet</div>';

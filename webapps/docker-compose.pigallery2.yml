@@ -1,0 +1,18 @@
+# PiGallery2 — a minimal, dependency-light gallery to browse the TravelServer
+# BACKUP/ folders. Configure albums/users via its web UI after first start.
+name: pigallery2
+
+services:
+  pigallery2:
+    container_name: pigallery2
+    image: bpatrik/pigallery2:latest
+    ports:
+      - "8183:80"
+    environment:
+      NODE_ENV: production
+    volumes:
+      - ./pigallery2-config:/app/data/config
+      - ./pigallery2-db:/app/data/db
+      # Read-only view of the TRAVEL1 mirror (see lsblk / webapps/README.md).
+      - ${TRAVEL1_BACKUP}:/app/data/images:ro
+    restart: always

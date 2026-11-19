@@ -1,11 +1,14 @@
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import time
 
 import disks
 import iphone as iphone_mod
+import status
+import webui
 from backup import BackupError, MirrorBackup
 from config import Config
 from index import BackupIndex
@@ -14,6 +17,47 @@ from led import Led
 
 def log(message):
     print("[travelserver] %s" % message, flush=True)
+    status.STATUS.add_log(message)
+
+
+def human_bytes(n):
+    value = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            if unit == "B":
+                return "%.0f %s" % (value, unit)
+            return "%.1f %s" % (value, unit)
+        value /= 1024.0
+
+
+def disk_entry(cfg, devices, label):
+    """Snapshot of one labeled SSD for the status dashboard."""
+    dev = None
+    for d in devices:
+        if d.get("label") == label or any(c.get("label") == label for c in d.get("children", [])):
+            dev = d
+            break
+    entry = {"label": label, "present": dev is not None,
+             "mountpoint": None, "size": None, "free": None}
+    if dev:
+        mountpoint = dev.get("mountpoint")
+        if not mountpoint:
+            for child in dev.get("children", []):
+                mountpoint = mountpoint or child.get("mountpoint")
+        entry["mountpoint"] = mountpoint
+        entry["size"] = human_bytes(disks.dev_size_bytes(dev))
+        if mountpoint:
+            try:
+                usage = shutil.disk_usage(mountpoint)
+                entry["free"] = human_bytes(usage.free)
+            except OSError:
+                pass
+    return entry
+
+
+def disks_overview(cfg, devices):
+    return [disk_entry(cfg, devices, label)
+            for label in (cfg.ssd_label_1, cfg.ssd_label_2)]
 
 
 def handle_card(cfg, led, dev):
@@ -30,21 +74,25 @@ def handle_card(cfg, led, dev):
             mountpoint = None
             disks.format_exfat(dev["path"])
             led.set("done")
+            status.STATUS.set_state("done", source=source_id, source_kind="card")
             log("card %s formatted to exFAT" % source_id)
             return
         led.set("backup")
-        stats = backup.run_source(mountpoint, source_id, ("",))
+        stats = backup.run_source(mountpoint, source_id, ("",), source_kind="card")
         info = backup.write_card_info(source_id, size_bytes, stats)
         if info["files_failed"] == 0 and info["files_unverified"] == 0:
             remount_rw_and_write_marker(cfg, dev, mountpoint, backup, info, source_id)
             led.set("done")
+            status.STATUS.set_state("done")
             log("card %s: backup complete and verified - safe to erase" % source_id)
         else:
             led.set("error")
+            status.STATUS.set_state("error")
             log("card %s: backup INCOMPLETE (%d failed, %d unverified); card NOT marked erasable"
                 % (source_id, info["files_failed"], info["files_unverified"]))
     except Exception as exc:
         led.set("error")
+        status.STATUS.set_error("card backup failed: %s" % exc)
         log("card backup failed: %s" % exc)
     finally:
         if mountpoint:
@@ -87,17 +135,20 @@ def handle_iphone(cfg, led):
         led.set("backup")
         backup = build_backup(cfg, led)
         source_id = name.replace(" ", "-").lower()
-        stats = backup.run_source(mountpoint, source_id, ("DCIM",))
+        stats = backup.run_source(mountpoint, source_id, ("DCIM",), source_kind="phone")
         info = backup.write_card_info(source_id, 0, stats)
         if info["files_failed"] == 0 and info["files_unverified"] == 0:
             led.set("done")
+            status.STATUS.set_state("done")
             log("iPhone %s: backup complete and verified" % name)
         else:
             led.set("error")
+            status.STATUS.set_state("error")
             log("iPhone %s: backup INCOMPLETE (%d failed, %d unverified)"
                 % (name, info["files_failed"], info["files_unverified"]))
     except Exception as exc:
         led.set("error")
+        status.STATUS.set_error("iPhone backup failed: %s" % exc)
         log("iPhone backup failed: %s" % exc)
     finally:
         if mountpoint:
@@ -144,6 +195,12 @@ def build_backup(cfg, led):
 
 def run_daemon(cfg, led, once=False):
     led.set("idle")
+    if cfg.webui_enabled:
+        try:
+            webui.start(cfg)
+            log("web UI listening on http://%s:%d" % (cfg.webui_bind, cfg.webui_port))
+        except OSError as exc:
+            log("could not start web UI on %s:%d: %s" % (cfg.webui_bind, cfg.webui_port, exc))
     known_cards = set()
     last_iphone = 0.0
     while True:
@@ -152,6 +209,10 @@ def run_daemon(cfg, led, once=False):
         except Exception as exc:
             log("lsblk failed: %s" % exc)
             devices = []
+        try:
+            status.STATUS.set_disks(disks_overview(cfg, devices))
+        except Exception as exc:
+            log("disk overview failed: %s" % exc)
         for dev in devices:
             if not disks.is_removable_card_reader_device(dev, cfg):
                 continue

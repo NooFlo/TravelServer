@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+WITH_DOCKER=0
+for arg in "$@"; do
+  case "$arg" in
+    --with-docker) WITH_DOCKER=1 ;;
+    -h|--help)
+      echo "usage: sudo ./install.sh [--with-docker]"
+      echo "  --with-docker  also install Docker + Compose (for testing webapps/, see webapps/README.md)"
+      exit 0
+      ;;
+    *)
+      echo "unknown option: $arg (see ./install.sh --help)" >&2
+      exit 1
+      ;;
+  esac
+done
+
 if [[ $EUID -ne 0 ]]; then
   echo "Please run as root (sudo ./install.sh)" >&2
   exit 1
@@ -42,7 +58,21 @@ echo "Enabling usbmuxd and travelserver services ..."
 systemctl enable --now usbmuxd || true
 systemctl enable travelserver
 
+if [[ $WITH_DOCKER -eq 1 ]]; then
+  echo "Installing Docker and Compose ..."
+  apt-get install -y docker.io
+  if ! apt-get install -y docker-compose-v2 2>/dev/null; then
+    if ! apt-get install -y docker-compose-plugin 2>/dev/null; then
+      apt-get install -y docker-compose || echo "WARNING: no compose package found; install one manually" >&2
+    fi
+  fi
+  systemctl enable --now docker || true
+  echo "Docker installed. Example webapps (Immich, PiGallery2) live in webapps/."
+fi
+
 mkdir -p /mnt/travelserver
+
+IP_HINT=$(hostname -I 2>/dev/null | awk '{print $1}')
 
 cat <<EOF
 
@@ -50,11 +80,13 @@ Installation complete. Next steps:
 
 1. Label your two SSDs exactly TRAVEL1 and TRAVEL2:
      sudo e2label /dev/sdX1 TRAVEL1
-2. Edit ${CONFIG_DIR}/travelserver.conf (LED GPIO line, extensions, etc).
+2. Edit ${CONFIG_DIR}/travelserver.conf (LED GPIO line, extensions, web UI port, etc).
 3. Find your card reader devices:
      python3 ${INSTALL_DIR}/travelserver/main.py sd-check
 4. Start the daemon:
      sudo systemctl start travelserver
+5. Open the status dashboard in a browser:
+     http://${IP_HINT:-<rock5a-ip>}:8000
 
 The LED patterns are documented in ${INSTALL_DIR}/../README.md on the repo.
 EOF

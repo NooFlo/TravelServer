@@ -1,6 +1,8 @@
 import subprocess
 import threading
 
+import status
+
 PATTERNS = {
     "off": [],
     "idle": [(1.0, 2.0), (0.0, 2.0)],
@@ -35,6 +37,7 @@ class Led(threading.Thread):
             raise ValueError("unknown LED pattern: %s" % pattern)
         with self._state_lock:
             self._pattern = pattern
+        status.STATUS.set_led(pattern)
 
     def stop(self):
         self._stop.set()

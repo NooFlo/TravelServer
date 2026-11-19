@@ -4,6 +4,8 @@ import json
 import os
 import shutil
 
+import status
+
 
 MARKER_NAME = ".travelserver.json"
 CARD_INFO_DIR = "cards"
@@ -131,26 +133,32 @@ class MirrorBackup:
                 return False
         return True
 
-    def run_source(self, mountpoint, source, subdirs):
+    def run_source(self, mountpoint, source, subdirs, source_kind="card"):
         copied = 0
         skipped = 0
         failed = 0
         files = list(scan_media(mountpoint, self.cfg.extensions, subdirs))
         total = len(files)
+        status.STATUS.reset(source, source_kind, total)
         self.log("backing up %d media files from %s" % (total, source))
         for i, path in enumerate(files, 1):
+            name = os.path.basename(path)
             try:
                 sha, was_new = self.backup_file(path, source)
                 if was_new:
                     copied += 1
+                    status.STATUS.progress(name, copied=1)
                 else:
                     skipped += 1
+                    status.STATUS.progress(name, skipped=1)
             except Exception as exc:
                 self.log("FAILED %s: %s" % (path, exc))
                 failed += 1
+                status.STATUS.progress(name, failed=1)
             if i % 10 == 0 or i == total:
                 self.log("progress: %d/%d" % (i, total))
         self.led.set("verify")
+        status.STATUS.set_verify()
         self.log("verifying %d copied files" % copied)
         unverified = 0
         for path in files:
@@ -159,6 +167,7 @@ class MirrorBackup:
                 if not self.verify_file(path):
                     unverified += 1
                     self.log("VERIFY FAILED: %s" % name)
+        status.STATUS.set_unverified(unverified)
         return total, copied, skipped, failed, unverified
 
     def write_card_info(self, source, size_bytes, stats):

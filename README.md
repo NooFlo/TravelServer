@@ -1,6 +1,40 @@
 # TravelServer
 
-A headless photo backup appliance for the [Radxa ROCK 5A](https://radxa.com/products/rock5/rock5a). Insert an SD card, and it automatically backs up all photos and videos to two SSDs (mirrored), verifies them, and marks the card safe to erase. Plug in an iPhone over USB and its camera roll is backed up the same way. A GPIO status LED shows what the box is doing. Each file is backed up exactly once: files are compared by date, name, size, and SHA-256 hash before anything is copied.
+A headless photo backup appliance for the [Radxa ROCK 5A](https://radxa.com/products/rock5/rock5a). Insert an SD card, and it automatically backs up all photos and videos to two SSDs (mirrored), verifies them, and marks the card safe to erase. Plug in an iPhone over USB and its camera roll is backed up the same way. A GPIO status LED shows what the box is doing. Each file is backed up exactly once: files are compared by date, name, size, and SHA-256 hash before anything is copied. A small web dashboard shows live progress.
+
+## First boot on a fresh ROCK 5A
+
+The ROCK 5A **has no native Ethernet jack** — you need a **USB→GbE adapter**
+(any ASIX/Realtek-based one works) in one of the USB 3 ports. The box is
+otherwise headless: no monitor or keyboard needed.
+
+1. On your computer: download the **Armbian server** image for the ROCK 5A
+   from [armbian.com](https://www.armbian.com/download/?device=radxa_rock_5a)
+   and flash it to the microSD card (the one labeled "untitled") with
+   [balenaEtcher](https://etcher.balena.io/) or the Armbian imaging utility.
+2. Plug the USB→GbE adapter into the ROCK 5A, connect Ethernet to your
+   router, insert the SD, power on.
+3. On first boot, Armbian resizes its partition and reboots once more; give
+   it ~5 minutes. Find the board's IP address in your router's DHCP list.
+4. SSH in — Armbian defaults are `root` / `1234`, and you're asked to set a
+   new password immediately:
+   ```bash
+   ssh root@<rock5a-ip>
+   ```
+5. Install TravelServer:
+   ```bash
+   git clone -b vibe/travel-server-rock5a https://github.com/NooFlo/TravelServer.git
+   cd TravelServer
+   sudo ./install.sh           # add --with-docker for the optional webapps layer
+   sudo systemctl start travelserver
+   ```
+   (Once PR #1 merges, drop the `-b vibe/travel-server-rock5a`.)
+6. Open the status dashboard in a browser: **http://\<rock5a-ip\>:8000**
+   — insert an SD card and watch it work.
+
+With no backup SSDs attached yet, the daemon runs fine: it idles, logs
+`SSD with label TRAVEL1 not found`, and shows an error pattern if you insert
+a card. The dashboard's *Storage* section tells you when both SSDs are seen.
 
 ## How it works
 
@@ -58,12 +92,27 @@ BACKUP/
     johns-iphone-2025-11-19.json
 ```
 
+## Web GUI
+
+The daemon serves a small dark-theme dashboard on port **8000** (config:
+`[webui]` → `enabled`, `bind`, `port`): live progress bar and per-file stats
+(copied / skipped dedupe / failed / unverified), the drive presence and free
+space of TRAVEL1/TRAVEL2, the current LED pattern, and a rolling last-200
+log lines. It polls `/api/status.json` every 3 s and is plain stdlib —
+no framework, no database, nothing to configure beyond the port.
+It's plain HTTP: treat it as LAN-only.
+
+Other webapps (Immich, a minimal gallery) can run alongside via the optional
+Docker layer — see [webapps/README.md](webapps/README.md) and
+`sudo ./install.sh --with-docker`. They are strictly separate from the
+backup pipeline and only ever see `BACKUP/` read-only.
+
 ## Installation
 
 On the ROCK 5A (Armbian/Debian/Ubuntu):
 
 ```bash
-git clone https://github.com/NooFlo/TravelServer.git
+git clone -b vibe/travel-server-rock5a https://github.com/NooFlo/TravelServer.git
 cd TravelServer
 sudo ./install.sh
 sudo systemctl start travelserver
@@ -73,12 +122,15 @@ journalctl -u travelserver -f    # watch it work
 The installer copies the code to `/opt/travelserver`, the config to
 `/etc/travelserver/travelserver.conf`, and installs `python3`,
 `libimobiledevice-utils`, `usbmuxd`, `ifuse`, `exfatprogs`, and `libgpiod-utils`.
+Use `sudo ./install.sh --with-docker` to additionally install Docker + Compose
+for the [optional webapps](webapps/README.md).
 
 Edit `/etc/travelserver/travelserver.conf` to change:
 - SSD labels, backup folder name
 - media file extensions
 - LED GPIO chip/line, or disable the LED
 - poll interval, max card size guard for the formatter
+- web UI port / bind address, or disable it entirely
 
 ## Safety guards around formatting
 
@@ -105,6 +157,7 @@ Edit `/etc/travelserver/travelserver.conf` to change:
 
 ```bash
 python3 tests/test_backup.py
+python3 tests/test_webui.py
 ```
 
 ## Acknowledgements / prior art
